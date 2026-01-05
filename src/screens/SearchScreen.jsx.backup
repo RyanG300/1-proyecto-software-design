@@ -1,0 +1,363 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  ScrollView,
+} from 'react-native';
+import GameCard from '../components/GameCard';
+import {
+  searchGames,
+  getGenres,
+  getPlatforms,
+  getGamesByGenre,
+  getGamesByPlatform,
+} from '../services/igdbApi';
+
+const SearchScreen = ({ navigation }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [genres, setGenres] = useState([]);
+  const [platforms, setPlatforms] = useState([]);
+  const [selectedGenre, setSelectedGenre] = useState(null);
+  const [selectedPlatform, setSelectedPlatform] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [filtersLoading, setFiltersLoading] = useState(true);
+
+  useEffect(() => {
+    loadFilters();
+  }, []);
+
+  useEffect(() => {
+    if (searchQuery.length > 0) {
+      handleSearch();
+    }
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (selectedGenre) {
+      loadGamesByGenre();
+    }
+  }, [selectedGenre]);
+
+  useEffect(() => {
+    if (selectedPlatform) {
+      loadGamesByPlatform();
+    }
+  }, [selectedPlatform]);
+
+  const loadFilters = async () => {
+    try {
+      const [genresData, platformsData] = await Promise.all([
+        getGenres(),
+        getPlatforms(),
+      ]);
+      setGenres(genresData);
+      setPlatforms(platformsData);
+    } catch (error) {
+      console.error('Error loading filters:', error);
+    } finally {
+      setFiltersLoading(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (searchQuery.trim().length === 0) {
+      setSearchResults([]);
+      return;
+    }
+
+    setLoading(true);
+    setSelectedGenre(null);
+    setSelectedPlatform(null);
+
+    try {
+      const results = await searchGames(searchQuery, 20);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Error searching games:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadGamesByGenre = async () => {
+    if (!selectedGenre) return;
+
+    setLoading(true);
+    setSearchQuery('');
+    setSelectedPlatform(null);
+
+    try {
+      const results = await getGamesByGenre(selectedGenre.id, 20);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Error loading games by genre:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadGamesByPlatform = async () => {
+    if (!selectedPlatform) return;
+
+    setLoading(true);
+    setSearchQuery('');
+    setSelectedGenre(null);
+
+    try {
+      const results = await getGamesByPlatform(selectedPlatform.id, 20);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Error loading games by platform:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGamePress = (game) => {
+    navigation.navigate('GameDetails', { gameId: game.id, game });
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setSelectedGenre(null);
+    setSelectedPlatform(null);
+  };
+
+  const renderGameItem = ({ item }) => (
+    <View style={styles.gridItem}>
+      <GameCard game={item} onPress={handleGamePress} style={styles.card} />
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Search Games</Text>
+        
+        {/* Search Bar */}
+        <View style={styles.searchBar}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search for a game..."
+            placeholderTextColor="#666"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {(searchQuery.length > 0 || selectedGenre || selectedPlatform) && (
+            <TouchableOpacity 
+              style={styles.clearButton}
+              onPress={clearSearch}
+            >
+              <Text style={styles.clearButtonText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Filters */}
+      {!filtersLoading && (
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.filtersContainer}
+          contentContainerStyle={styles.filtersContent}
+        >
+          <Text style={styles.filterLabel}>Genres:</Text>
+          {genres.slice(0, 10).map((genre) => (
+            <TouchableOpacity
+              key={genre.id}
+              style={[
+                styles.filterChip,
+                selectedGenre?.id === genre.id && styles.filterChipActive,
+              ]}
+              onPress={() => setSelectedGenre(genre)}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  selectedGenre?.id === genre.id && styles.filterChipTextActive,
+                ]}
+              >
+                {genre.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      {!filtersLoading && (
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.filtersContainer}
+          contentContainerStyle={styles.filtersContent}
+        >
+          <Text style={styles.filterLabel}>Platforms:</Text>
+          {platforms.slice(0, 10).map((platform) => (
+            <TouchableOpacity
+              key={platform.id}
+              style={[
+                styles.filterChip,
+                selectedPlatform?.id === platform.id && styles.filterChipActive,
+              ]}
+              onPress={() => setSelectedPlatform(platform)}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  selectedPlatform?.id === platform.id && styles.filterChipTextActive,
+                ]}
+              >
+                {platform.abbreviation || platform.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      {/* Results */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6C63FF" />
+        </View>
+      ) : searchResults.length > 0 ? (
+        <FlatList
+          data={searchResults}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderGameItem}
+          numColumns={2}
+          contentContainerStyle={styles.resultsContainer}
+          columnWrapperStyle={styles.row}
+        />
+      ) : searchQuery.length > 0 || selectedGenre || selectedPlatform ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No games found</Text>
+        </View>
+      ) : (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>
+            Search for games or filter by genre/platform
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0f0f1e',
+  },
+  header: {
+    padding: 20,
+    paddingTop: 60,
+    backgroundColor: '#1a1a2e',
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 15,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f0f1e',
+    borderRadius: 12,
+    paddingHorizontal: 15,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+    paddingVertical: 12,
+  },
+  clearButton: {
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clearButtonText: {
+    color: '#888',
+    fontSize: 18,
+  },
+  filtersContainer: {
+    backgroundColor: '#1a1a2e',
+    paddingVertical: 10,
+  },
+  filtersContent: {
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  filterLabel: {
+    color: '#888',
+    fontSize: 14,
+    marginRight: 10,
+    fontWeight: 'bold',
+  },
+  filterChip: {
+    backgroundColor: '#0f0f1e',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  filterChipActive: {
+    backgroundColor: '#6C63FF',
+    borderColor: '#6C63FF',
+  },
+  filterChipText: {
+    color: '#ccc',
+    fontSize: 13,
+  },
+  filterChipTextActive: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  resultsContainer: {
+    padding: 10,
+  },
+  row: {
+    justifyContent: 'space-between',
+  },
+  gridItem: {
+    width: '48%',
+    marginBottom: 15,
+  },
+  card: {
+    width: '100%',
+    marginRight: 0,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+});
+
+export default SearchScreen;

@@ -1,0 +1,17 @@
+{
+  "name": "Game Catalog",
+  "short_name": "GameCatalog",
+  "description": "Explora, busca y descubre videojuegos",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#00d4ff",
+  "background_color": "#0a0a0a",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}

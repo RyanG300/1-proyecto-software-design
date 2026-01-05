@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# IGDB API credentials (DO NOT COMMIT)
+src/config/igdbConfig.js
