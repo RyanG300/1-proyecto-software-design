@@ -1,4 +1,14 @@
-import React, { useState } from 'react';
+const getBaseUrl = () => {
+  if (Platform.OS === 'web') {
+    return 'http://localhost:3001/api/igdb';
+  }
+  
+  if (Platform.OS === 'android' && __DEV__) {
+    return 'http://192.168.1.100:3001/api/igdb'; // Reemplaza con TU IP
+  }
+  
+  return 'https://api.igdb.com/v4';
+};import React, { useState } from 'react';
 import {
   View,
   Text,

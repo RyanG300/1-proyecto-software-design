@@ -18,7 +18,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
-  const { login, signInWithGoogle } = useAuth();
+  const { login, signInWithGoogle, signInWithDiscord } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -61,6 +61,17 @@ export default function LoginScreen({ navigation }) {
 
     if (!result.success) {
       showAlert('error', 'Google Sign-In Failed', result.error || 'Could not sign in with Google.');
+    }
+    // La navegación se maneja automáticamente por el AuthContext
+  };
+
+  const handleDiscordSignIn = async () => {
+    setIsLoading(true);
+    const result = await signInWithDiscord();
+    setIsLoading(false);
+
+    if (!result.success) {
+      showAlert('error', 'Discord Sign-In Failed', result.error || 'Could not sign in with Discord.');
     }
     // La navegación se maneja automáticamente por el AuthContext
   };
@@ -178,10 +189,10 @@ export default function LoginScreen({ navigation }) {
             <TouchableOpacity 
               style={[styles.socialButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]} 
               activeOpacity={0.8}
-              onPress={() => showAlert('info', 'Social Login', 'Feature coming soon.')}
+              onPress={handleDiscordSignIn}
               disabled={isLoading}
             >
-              <Ionicons name="logo-facebook" size={24} color={theme.colors.textSecondary} />
+              <Ionicons name="logo-discord" size={24} color="#5865F2" />
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.socialButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]} 

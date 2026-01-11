@@ -10,6 +10,7 @@ import {
   GoogleAuthProvider,
   signInWithCredential,
   signInWithPopup,
+  signInWithCustomToken,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -222,6 +223,81 @@ export const AuthProvider = ({ children }) => {
     */
   };
 
+  const signInWithDiscord = async () => {
+    // Solo disponible en web
+    if (Platform.OS === 'web') {
+      try {
+        return new Promise((resolve) => {
+          // Abrir ventana de OAuth
+          const width = 500;
+          const height = 700;
+          const left = window.screen.width / 2 - width / 2;
+          const top = window.screen.height / 2 - height / 2;
+          
+          const popup = window.open(
+            'http://localhost:3001/api/auth/discord',
+            'Discord Login',
+            `width=${width},height=${height},left=${left},top=${top}`
+          );
+
+          // Escuchar mensaje de la ventana popup
+          const handleMessage = async (event) => {
+            if (event.data.type === 'discord-auth') {
+              window.removeEventListener('message', handleMessage);
+              
+              const { customToken, userData } = event.data;
+              
+              try {
+                // Autenticar en Firebase con el custom token
+                const userCredential = await signInWithCustomToken(auth, customToken);
+                const firebaseUser = userCredential.user;
+                
+                // Actualizar el perfil con la información de Discord
+                const photoURL = userData.avatar 
+                  ? `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png`
+                  : null;
+                
+                await updateProfile(firebaseUser, {
+                  displayName: userData.username,
+                  photoURL: photoURL,
+                });
+                
+                resolve({ success: true, user: firebaseUser });
+              } catch (error) {
+                console.error('Error autenticando con custom token:', error);
+                resolve({ success: false, error: 'Failed to authenticate with Discord' });
+              }
+            } else if (event.data.type === 'discord-auth-error') {
+              window.removeEventListener('message', handleMessage);
+              resolve({ success: false, error: event.data.error || 'Discord authentication failed' });
+            }
+          };
+
+          window.addEventListener('message', handleMessage);
+          
+          // Timeout si el usuario no completa la autenticación
+          setTimeout(() => {
+            if (popup && !popup.closed) {
+              popup.close();
+            }
+            window.removeEventListener('message', handleMessage);
+            resolve({ success: false, error: 'Authentication timeout' });
+          }, 60000); // 1 minuto
+        });
+      } catch (error) {
+        console.error('Error signing in with Discord:', error);
+        return { success: false, error: 'Discord sign-in failed' };
+      }
+    }
+    
+    // Discord no disponible en móvil por ahora
+    console.warn('Discord Sign-In solo está disponible en web');
+    return { 
+      success: false, 
+      error: 'Discord Sign-In solo está disponible en la versión web' 
+    };
+  };
+
   const logout = async () => {
     try {
       await signOut(auth);
@@ -329,6 +405,7 @@ export const AuthProvider = ({ children }) => {
     register,
     login,
     signInWithGoogle,
+    signInWithDiscord,
     logout,
     updateProfile: updateUserProfile,
     uploadProfileImage,

@@ -67,7 +67,6 @@ npm start
 ```
 
 ## 📱 Estructura del Proyecto
-
 ```
 game-catalog/
 ├── src/
