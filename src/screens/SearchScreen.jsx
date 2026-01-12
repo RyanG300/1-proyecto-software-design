@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../theme/ThemeContext';
-import { searchGames, getImageUrl, getGamesByGenre, getGenres, getRandomGames } from '../services/igdbApi';
+import { searchGames, getImageUrl, getGamesByGenre, getGenres, getRandomGames, getSimilarGames } from '../services/igdbApi';
 
 const SearchScreen = ({ navigation }) => {
   const { t } = useTranslation();
@@ -28,17 +28,22 @@ const SearchScreen = ({ navigation }) => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
   const [searchHistory, setSearchHistory] = useState([]);
 
+  // NUEVO (similares)
+  const [similarGames, setSimilarGames] = useState([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
+  const [baseGameName, setBaseGameName] = useState('');
+
   useEffect(() => {
     loadGenres();
     loadSuggestedGames();
     loadSearchHistory();
-    
+
     // Recargar juegos sugeridos cada 5 minutos
     const interval = setInterval(() => {
       console.log('Refreshing suggested games...');
       loadSuggestedGames();
     }, 5 * 60 * 1000); // 5 minutos en milisegundos
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -47,9 +52,20 @@ const SearchScreen = ({ navigation }) => {
       handleSearch();
     } else if (searchQuery.length === 0) {
       setSearchResults([]);
+
+      // NUEVO (limpiar similares)
+      setSimilarGames([]);
+      setBaseGameName('');
+      setLoadingSimilar(false);
+
       if (selectedGenre) {
         loadGamesByGenre();
       }
+    } else {
+      // NUEVO (si hay 1-2 letras, no buscamos y limpiamos similares)
+      setSimilarGames([]);
+      setBaseGameName('');
+      setLoadingSimilar(false);
     }
   }, [searchQuery]);
 
@@ -83,7 +99,12 @@ const SearchScreen = ({ navigation }) => {
 
   const loadGamesByGenre = async () => {
     if (!selectedGenre) return;
-    
+
+    // NUEVO (limpiar similares cuando se cambia a modo género)
+    setSimilarGames([]);
+    setBaseGameName('');
+    setLoadingSimilar(false);
+
     setLoading(true);
     try {
       const results = await getGamesByGenre(selectedGenre.id, 100);
@@ -119,17 +140,33 @@ const SearchScreen = ({ navigation }) => {
 
   const handleSearch = async () => {
     if (searchQuery.trim().length === 0) return;
-    
+
+    // NUEVO (preparar similares)
+    setSimilarGames([]);
+    setBaseGameName('');
+    setLoadingSimilar(false);
+
     setLoading(true);
     try {
       const results = await searchGames(searchQuery, 50);
       setSearchResults(results);
       // Guardar en historial
       await saveSearchToHistory(searchQuery.trim());
+
+      // NUEVO (cargar similares del primer resultado)
+      const top = results?.[0];
+      if (top?.id) {
+        setLoadingSimilar(true);
+        setBaseGameName(top.name);
+
+        const sim = await getSimilarGames(top.id, 10);
+        setSimilarGames(sim);
+      }
     } catch (error) {
       console.error('Error searching games:', error);
     } finally {
       setLoading(false);
+      setLoadingSimilar(false);
     }
   };
 
@@ -158,223 +195,268 @@ const SearchScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>{t('search')}</Text>
-          <TouchableOpacity style={[styles.avatar, { borderColor: theme.colors.border }]}>
-            <Ionicons name="person-circle" size={40} color={theme.colors.primary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <View style={[styles.searchBar, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
-            <TextInput
-              style={[styles.searchInput, { color: theme.colors.text }]}
-              placeholder={t('searchGames')}
-              placeholderTextColor={theme.colors.textTertiary}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity 
-              style={styles.filterButton}
-              onPress={() => setShowFilters(!showFilters)}
-            >
-              <Ionicons name="options" size={20} color={showFilters ? theme.colors.primary : theme.colors.textSecondary} />
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={[styles.headerTitle, { color: theme.colors.text }]}>{t('search')}</Text>
+            <TouchableOpacity style={[styles.avatar, { borderColor: theme.colors.border }]}>
+              <Ionicons name="person-circle" size={40} color={theme.colors.primary} />
             </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Filters */}
-        {showFilters && (
-          <View style={styles.filtersContainer}>
-            <Text style={[styles.filterLabel, { color: theme.colors.textSecondary }]}>{t('filterByGenre')}</Text>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.genresList}
-            >
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <View style={[styles.searchBar, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+              <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
+              <TextInput
+                  style={[styles.searchInput, { color: theme.colors.text }]}
+                  placeholder={t('searchGames')}
+                  placeholderTextColor={theme.colors.textTertiary}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+              />
               <TouchableOpacity
-                style={[
-                  styles.genreChip,
-                  { backgroundColor: !selectedGenre ? theme.colors.primary : theme.colors.surface, borderColor: !selectedGenre ? theme.colors.primary : theme.colors.border },
-                ]}
-                onPress={() => {
-                  setSelectedGenre(null);
-                  setSearchResults([]);
-                }}
+                  style={styles.filterButton}
+                  onPress={() => setShowFilters(!showFilters)}
               >
-                <Text style={[
-                  styles.genreChipText,
-                  { color: !selectedGenre ? '#ffffff' : theme.colors.textSecondary, fontWeight: !selectedGenre ? 'bold' : '500' },
-                ]}>{t('all')}</Text>
+                <Ionicons name="options" size={20} color={showFilters ? theme.colors.primary : theme.colors.textSecondary} />
               </TouchableOpacity>
-              {genres.map((genre) => (
-                <TouchableOpacity
-                  key={genre.id}
-                  style={[
-                    styles.genreChip,
-                    { backgroundColor: selectedGenre?.id === genre.id ? theme.colors.primary : theme.colors.surface, borderColor: selectedGenre?.id === genre.id ? theme.colors.primary : theme.colors.border },
-                  ]}
-                  onPress={() => setSelectedGenre(genre)}
-                >
-                  <Text style={[
-                    styles.genreChipText,
-                    { color: selectedGenre?.id === genre.id ? '#ffffff' : theme.colors.textSecondary, fontWeight: selectedGenre?.id === genre.id ? 'bold' : '500' },
-                  ]}>{genre.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Show results if searching */}
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-          </View>
-        ) : searchResults.length > 0 ? (
-          <View style={styles.resultsSection}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-              {selectedGenre ? `${selectedGenre.name}` : t('results')}
-            </Text>
-            {searchResults.map((game) => (
-              <TouchableOpacity
-                key={game.id}
-                style={[styles.resultItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-                onPress={() => handleGamePress(game)}
-              >
-                <View style={[styles.resultImageContainer, { backgroundColor: theme.colors.surfaceLight }]}>
-                  {game.cover?.image_id && (
-                    <Image
-                      source={{ uri: getImageUrl(game.cover.image_id, 'cover_small') }}
-                      style={styles.resultImage}
-                      resizeMode="cover"
-                    />
-                  )}
-                </View>
-                <View style={styles.resultInfo}>
-                  <Text style={[styles.resultName, { color: theme.colors.text }]} numberOfLines={2}>{game.name}</Text>
-                  {game.rating && (
-                    <View style={styles.ratingContainer}>
-                      <Ionicons name="star" size={12} color="#fbbf24" />
-                      <Text style={[styles.ratingText, { color: theme.colors.text }]}>{(game.rating / 20).toFixed(1)}</Text>
-                    </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : searchQuery.length > 0 ? null : (
-          <>
-            {/* Recent History */}
-            {searchHistory.length > 0 && (
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>{t('recentHistory')}</Text>
-                  <TouchableOpacity onPress={clearHistory}>
-                    <Text style={[styles.clearAllText, { color: theme.colors.primary }]}>{t('clearAll')}</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.historyList}>
-                  {searchHistory.map((item, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.historyItem}
-                      onPress={() => setSearchQuery(item)}
-                    >
-                      <View style={[styles.historyIconContainer, { backgroundColor: theme.colors.surface }]}>
-                        <Ionicons name="time-outline" size={18} color={theme.colors.textSecondary} />
-                      </View>
-                      <Text style={[styles.historyText, { color: theme.colors.text }]}>{item}</Text>
-                      <TouchableOpacity
-                        style={styles.removeButton}
-                        onPress={() => removeHistoryItem(index)}
-                      >
-                        <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Suggested Games */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{t('suggestedForYou')}</Text>
-                <TouchableOpacity onPress={loadSuggestedGames}>
-                  <Ionicons name="refresh" size={20} color={theme.colors.primary} />
-                </TouchableOpacity>
-              </View>
-              {loadingSuggestions ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                  <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>{t('loadingSuggestions')}</Text>
-                </View>
-              ) : (
-                <View style={styles.suggestedList}>
-                  {suggestedGames.map((game) => {
-                    const developer = game.involved_companies?.find(ic => ic.developer)?.company?.name;
-                    const mainGenre = game.genres?.[0]?.name;
-                    const gameTheme = game.themes?.[0]?.name;
-                    
-                    return (
-                      <TouchableOpacity
-                        key={game.id}
-                        style={[styles.suggestedItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-                        onPress={() => handleGamePress(game)}
-                      >
-                        <View style={[styles.suggestedImage, { backgroundColor: theme.colors.surfaceLight }]}>
-                          {game.cover?.image_id && (
-                            <Image
-                              source={{ uri: getImageUrl(game.cover.image_id, 'cover_small') }}
-                              style={styles.gameImage}
-                              resizeMode="cover"
-                            />
-                          )}
-                        </View>
-                        <View style={styles.suggestedInfo}>
-                          <View style={styles.suggestedHeader}>
-                            <Text style={[styles.suggestedName, { color: theme.colors.text }]} numberOfLines={1}>{game.name}</Text>
-                            {game.rating && (
-                              <View style={styles.suggestedRating}>
-                                <Ionicons name="star" size={12} color="#fbbf24" />
-                                <Text style={styles.suggestedRatingText}>{(game.rating / 20).toFixed(1)}</Text>
-                              </View>
-                            )}
-                          </View>
-                          <Text style={[styles.suggestedReason, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                            {developer || t('popularGame')}
-                          </Text>
-                          <View style={styles.tagsContainer}>
-                            {mainGenre && (
-                              <View style={[styles.tag, { backgroundColor: theme.colors.surfaceLight, borderColor: theme.colors.border }]}>
-                                <Text style={[styles.tagText, { color: theme.colors.textSecondary }]}>{mainGenre}</Text>
-                              </View>
-                            )}
-                            {game.themes?.[0]?.name && (
-                              <View style={[styles.tag, { backgroundColor: theme.colors.surfaceLight, borderColor: theme.colors.border }]}>
-                                <Text style={[styles.tagText, { color: theme.colors.textSecondary }]}>{game.themes[0].name}</Text>
-                              </View>
-                            )}
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
             </View>
-          </>
-        )}
-      </ScrollView>
-    </View>
+          </View>
+
+          {/* Filters */}
+          {showFilters && (
+              <View style={styles.filtersContainer}>
+                <Text style={[styles.filterLabel, { color: theme.colors.textSecondary }]}>{t('filterByGenre')}</Text>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.genresList}
+                >
+                  <TouchableOpacity
+                      style={[
+                        styles.genreChip,
+                        { backgroundColor: !selectedGenre ? theme.colors.primary : theme.colors.surface, borderColor: !selectedGenre ? theme.colors.primary : theme.colors.border },
+                      ]}
+                      onPress={() => {
+                        setSelectedGenre(null);
+                        setSearchResults([]);
+
+                        // NUEVO (limpiar similares)
+                        setSimilarGames([]);
+                        setBaseGameName('');
+                        setLoadingSimilar(false);
+                      }}
+                  >
+                    <Text style={[
+                      styles.genreChipText,
+                      { color: !selectedGenre ? '#ffffff' : theme.colors.textSecondary, fontWeight: !selectedGenre ? 'bold' : '500' },
+                    ]}>{t('all')}</Text>
+                  </TouchableOpacity>
+                  {genres.map((genre) => (
+                      <TouchableOpacity
+                          key={genre.id}
+                          style={[
+                            styles.genreChip,
+                            { backgroundColor: selectedGenre?.id === genre.id ? theme.colors.primary : theme.colors.surface, borderColor: selectedGenre?.id === genre.id ? theme.colors.primary : theme.colors.border },
+                          ]}
+                          onPress={() => setSelectedGenre(genre)}
+                      >
+                        <Text style={[
+                          styles.genreChipText,
+                          { color: selectedGenre?.id === genre.id ? '#ffffff' : theme.colors.textSecondary, fontWeight: selectedGenre?.id === genre.id ? 'bold' : '500' },
+                        ]}>{genre.name}</Text>
+                      </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+          )}
+
+          {/* Show results if searching */}
+          {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+              </View>
+          ) : searchResults.length > 0 ? (
+              <View style={styles.resultsSection}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+                  {selectedGenre ? `${selectedGenre.name}` : t('results')}
+                </Text>
+                {searchResults.map((game) => (
+                    <TouchableOpacity
+                        key={game.id}
+                        style={[styles.resultItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+                        onPress={() => handleGamePress(game)}
+                    >
+                      <View style={[styles.resultImageContainer, { backgroundColor: theme.colors.surfaceLight }]}>
+                        {game.cover?.image_id && (
+                            <Image
+                                source={{ uri: getImageUrl(game.cover.image_id, 'cover_small') }}
+                                style={styles.resultImage}
+                                resizeMode="cover"
+                            />
+                        )}
+                      </View>
+                      <View style={styles.resultInfo}>
+                        <Text style={[styles.resultName, { color: theme.colors.text }]} numberOfLines={2}>{game.name}</Text>
+                        {game.rating && (
+                            <View style={styles.ratingContainer}>
+                              <Ionicons name="star" size={12} color="#fbbf24" />
+                              <Text style={[styles.ratingText, { color: theme.colors.text }]}>{(game.rating / 20).toFixed(1)}</Text>
+                            </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                ))}
+
+                {/* NUEVO: Similares */}
+                {loadingSimilar ? (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                    </View>
+                ) : similarGames.length > 0 ? (
+                    <View style={{ marginTop: 16 }}>
+                      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+                        Similares a: {baseGameName}
+                      </Text>
+
+                      {similarGames.map((game) => (
+                          <TouchableOpacity
+                              key={game.id}
+                              style={[styles.resultItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+                              onPress={() => handleGamePress(game)}
+                          >
+                            <View style={[styles.resultImageContainer, { backgroundColor: theme.colors.surfaceLight }]}>
+                              {game.cover?.image_id && (
+                                  <Image
+                                      source={{ uri: getImageUrl(game.cover.image_id, 'cover_small') }}
+                                      style={styles.resultImage}
+                                      resizeMode="cover"
+                                  />
+                              )}
+                            </View>
+                            <View style={styles.resultInfo}>
+                              <Text style={[styles.resultName, { color: theme.colors.text }]} numberOfLines={2}>{game.name}</Text>
+                              {game.rating && (
+                                  <View style={styles.ratingContainer}>
+                                    <Ionicons name="star" size={12} color="#fbbf24" />
+                                    <Text style={[styles.ratingText, { color: theme.colors.text }]}>{(game.rating / 20).toFixed(1)}</Text>
+                                  </View>
+                              )}
+                            </View>
+                          </TouchableOpacity>
+                      ))}
+                    </View>
+                ) : null}
+              </View>
+          ) : searchQuery.length > 0 ? null : (
+              <>
+                {/* Recent History */}
+                {searchHistory.length > 0 && (
+                    <View style={styles.section}>
+                      <View style={styles.sectionHeader}>
+                        <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>{t('recentHistory')}</Text>
+                        <TouchableOpacity onPress={clearHistory}>
+                          <Text style={[styles.clearAllText, { color: theme.colors.primary }]}>{t('clearAll')}</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.historyList}>
+                        {searchHistory.map((item, index) => (
+                            <TouchableOpacity
+                                key={index}
+                                style={styles.historyItem}
+                                onPress={() => setSearchQuery(item)}
+                            >
+                              <View style={[styles.historyIconContainer, { backgroundColor: theme.colors.surface }]}>
+                                <Ionicons name="time-outline" size={18} color={theme.colors.textSecondary} />
+                              </View>
+                              <Text style={[styles.historyText, { color: theme.colors.text }]}>{item}</Text>
+                              <TouchableOpacity
+                                  style={styles.removeButton}
+                                  onPress={() => removeHistoryItem(index)}
+                              >
+                                <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+                              </TouchableOpacity>
+                            </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                )}
+
+                {/* Suggested Games */}
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{t('suggestedForYou')}</Text>
+                    <TouchableOpacity onPress={loadSuggestedGames}>
+                      <Ionicons name="refresh" size={20} color={theme.colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+                  {loadingSuggestions ? (
+                      <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                        <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>{t('loadingSuggestions')}</Text>
+                      </View>
+                  ) : (
+                      <View style={styles.suggestedList}>
+                        {suggestedGames.map((game) => {
+                          const developer = game.involved_companies?.find(ic => ic.developer)?.company?.name;
+                          const mainGenre = game.genres?.[0]?.name;
+                          const gameTheme = game.themes?.[0]?.name;
+
+                          return (
+                              <TouchableOpacity
+                                  key={game.id}
+                                  style={[styles.suggestedItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+                                  onPress={() => handleGamePress(game)}
+                              >
+                                <View style={[styles.suggestedImage, { backgroundColor: theme.colors.surfaceLight }]}>
+                                  {game.cover?.image_id && (
+                                      <Image
+                                          source={{ uri: getImageUrl(game.cover.image_id, 'cover_small') }}
+                                          style={styles.gameImage}
+                                          resizeMode="cover"
+                                      />
+                                  )}
+                                </View>
+                                <View style={styles.suggestedInfo}>
+                                  <View style={styles.suggestedHeader}>
+                                    <Text style={[styles.suggestedName, { color: theme.colors.text }]} numberOfLines={1}>{game.name}</Text>
+                                    {game.rating && (
+                                        <View style={styles.suggestedRating}>
+                                          <Ionicons name="star" size={12} color="#fbbf24" />
+                                          <Text style={styles.suggestedRatingText}>{(game.rating / 20).toFixed(1)}</Text>
+                                        </View>
+                                    )}
+                                  </View>
+                                  <Text style={[styles.suggestedReason, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                                    {developer || t('popularGame')}
+                                  </Text>
+                                  <View style={styles.tagsContainer}>
+                                    {mainGenre && (
+                                        <View style={[styles.tag, { backgroundColor: theme.colors.surfaceLight, borderColor: theme.colors.border }]}>
+                                          <Text style={[styles.tagText, { color: theme.colors.textSecondary }]}>{mainGenre}</Text>
+                                        </View>
+                                    )}
+                                    {game.themes?.[0]?.name && (
+                                        <View style={[styles.tag, { backgroundColor: theme.colors.surfaceLight, borderColor: theme.colors.border }]}>
+                                          <Text style={[styles.tagText, { color: theme.colors.textSecondary }]}>{game.themes[0].name}</Text>
+                                        </View>
+                                    )}
+                                  </View>
+                                </View>
+                              </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                  )}
+                </View>
+              </>
+          )}
+        </ScrollView>
+      </View>
   );
 };
 
